@@ -13,6 +13,15 @@ js/storage.js     storage module: load / saveBoard / saveTask / deleteTask / ...
 js/app.js         the board UI
 ```
 
+## Hierarchy
+Items nest to any depth: **Area** (the workstreams) › **Workstream** › **Task** › **Sub-task** (and deeper).
+
+- **Checklist → Tree** shows the outline with ▸/▾ toggles, a level label per row and *Expand all* / *Collapse all* (collapse state is remembered per browser). *By week* keeps the original weekly list.
+- **+ Add** (top) adds an area; on a row, **+** adds a sub-item inline (Enter saves, Esc cancels), **✎** edits in place, **⋯** offers *Add same level*, *Add sub-item*, *Move up / down*, *Move under…* and *Delete* (the confirmation states how many sub-items go with it).
+- Clicking a row opens its details (title, description, owner, status, start, end, progress %, notes); edits save immediately.
+- **Roll-up:** a parent's progress is the average of its children; its status is *done* when all children are done, *at risk* if any is at risk, *in progress* if any has started, otherwise *not started*. On the Timeline a parent spans its earliest child start to latest child end; dragging a parent bar moves its whole branch. Headline numbers count leaf items only.
+- Database: `tasks.parent_id` (nullable, references `tasks.id`, `on delete cascade`) and `tasks.progress` (0–100, nullable). Existing rows are untouched (top-level, no explicit progress) and the existing RLS policies cover the new columns.
+
 ## Storage
 All persistence goes through `js/storage.js`.
 

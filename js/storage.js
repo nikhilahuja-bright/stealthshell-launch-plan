@@ -8,13 +8,22 @@
  *   SSStorage.reset()         -> restore the seed (js/data.js)
  *   SSStorage.seed()          -> fresh deep copy of the seed board
  * Backend: Supabase (supabase-js) when SS_CONFIG.SUPABASE_URL + SUPABASE_ANON_KEY are set,
- * otherwise localStorage. Permissions are enforced server-side by Postgres RLS. */
+ * otherwise localStorage. Permissions are enforced server-side by Postgres RLS.
+ * Hierarchy: task.parentId (tasks.parent_id, ON DELETE CASCADE) nests a task under another task;
+ * parentId null = top-level item directly under its workstream (the "Area" level). Sibling order is the
+ * array order (tasks.sort_order). task.progress (0-100 or null) is the leaf's own progress; parents roll up in js/app.js. */
 (function () {
   "use strict";
   var STORE_KEY = "stealthshell-launch-plan.v2";
   var cfg = window.SS_CONFIG || {};
 
-  function seed() { return JSON.parse(JSON.stringify(window.SS_SEED)); }
+  function seed() {
+    var b = JSON.parse(JSON.stringify(window.SS_SEED));
+    b.tasks = (b.tasks || []).map(function (t) {
+      return Object.assign({}, t, { parentId: t.parentId || null, progress: typeof t.progress === "number" ? t.progress : null });
+    });
+    return b;
+  }
 
   function isTask(x) {
     return !!x && typeof x === "object" && typeof x.id === "string" && typeof x.title === "string" &&
@@ -26,7 +35,8 @@
     return {
       meta: v.meta, wsOrder: v.wsOrder, flows: v.flows,
       tasks: v.tasks.map(function (t) {
-        return Object.assign({}, t, { description: t.description || "", notes: t.notes || "", priority: t.priority || "Medium", milestone: !!t.milestone });
+        return Object.assign({}, t, { description: t.description || "", notes: t.notes || "", priority: t.priority || "Medium", milestone: !!t.milestone,
+          parentId: typeof t.parentId === "string" && t.parentId ? t.parentId : null, progress: typeof t.progress === "number" ? t.progress : null });
       }),
     };
   }
@@ -70,12 +80,14 @@
 
   function rowToTask(r) {
     return { id: r.id, title: r.title, ws: r.workstream, owner: r.owner, start: r.start_date, end: r.end_date,
-      status: r.status, milestone: !!r.milestone, priority: r.priority || "Medium", description: r.description || "", notes: r.notes || "" };
+      status: r.status, milestone: !!r.milestone, priority: r.priority || "Medium", description: r.description || "", notes: r.notes || "",
+      parentId: r.parent_id || null, progress: typeof r.progress === "number" ? r.progress : null };
   }
   function taskToRow(t, i) {
     return { id: t.id, title: t.title, workstream: t.ws, owner: t.owner || "Unassigned", start_date: t.start,
       end_date: t.milestone ? t.start : t.end, status: t.status, milestone: !!t.milestone, priority: t.priority || "Medium",
-      description: t.description || "", notes: t.notes || "", sort_order: i };
+      description: t.description || "", notes: t.notes || "", sort_order: i,
+      parent_id: t.parentId || null, progress: typeof t.progress === "number" ? Math.max(0, Math.min(100, Math.round(t.progress))) : null };
   }
   function flowToRow(f, i) { return { id: f.id, title: f.title || "", sub: f.sub || "", steps: f.steps || [], sort_order: i }; }
   function clone(x) { return JSON.parse(JSON.stringify(x)); }

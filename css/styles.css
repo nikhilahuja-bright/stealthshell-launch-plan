@@ -152,3 +152,35 @@ html, body { margin: 0; padding: 0; background: #0a0e17; }
 .ss .mrow:last-child{border-bottom:0}
 .ss .mrow .tt{color:var(--t1);font-weight:500;font-size:13.5px;overflow-wrap:anywhere}
 .ss .mrow .meta{color:var(--t3);font-size:12px;margin-top:2px}
+/* ---- Hierarchy (areas › workstreams › tasks › sub-tasks), roll-up and row menus ---- */
+.ss .tog{appearance:none;border:0;background:transparent;color:var(--t3);font:inherit;font-size:11px;line-height:1;width:18px;height:18px;padding:0;border-radius:5px;cursor:pointer;flex:0 0 18px;display:inline-flex;align-items:center;justify-content:center}
+.ss .tog:hover{color:var(--t1);background:var(--hov)}
+.ss .tog.sp{cursor:default;pointer-events:none;background:transparent}
+.ss .g-lab .tog{margin-right:4px;vertical-align:-3px}
+.ss .g-lab.par{color:var(--t1);font-weight:500}
+.ss .lvl{font-family:var(--ssm);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);border:1px solid var(--bd);border-radius:5px;padding:1px 5px;flex:0 0 auto;white-space:nowrap}
+.ss .lvl[data-l="0"]{color:var(--ac);border-color:var(--acS);background:var(--acS)}
+.ss .lvl[data-l="1"]{color:var(--t2)}
+.ss .cl-row.tree{gap:8px 10px}
+.ss .cl-row.area{background:var(--bg);border-bottom-color:var(--bd);padding-top:12px;padding-bottom:12px}
+.ss .cl-row.area .tt{color:var(--ac);font-family:var(--ssm);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+.ss .cl-row.inl{background:var(--hov)}
+.ss .tree-card{overflow:visible}
+.ss .tree-card>.cl-row:first-child{border-top-left-radius:inherit;border-top-right-radius:inherit}
+.ss .tree-card>.cl-row:last-child{border-bottom:0;border-bottom-left-radius:inherit;border-bottom-right-radius:inherit}
+.ss .pbar{display:inline-flex;align-items:center;gap:7px;flex:0 0 auto}
+.ss .pbar .trk{display:block;width:64px;height:5px;border-radius:3px;background:var(--bd);overflow:hidden}
+.ss .pbar .trk i{display:block;height:100%;border-radius:3px}
+.ss .pbar b{font-size:11px;font-weight:500;color:var(--t2);min-width:32px;text-align:right}
+.ss .rowact{display:flex;gap:0;opacity:.55;transition:opacity .15s;flex:0 0 auto}
+.ss .cl-row:hover .rowact,.ss .rowact:focus-within{opacity:1}
+.ss .menu{position:fixed;z-index:60;min-width:220px;background:var(--el);border:1px solid var(--bdst);border-radius:12px;padding:5px;display:flex;flex-direction:column;box-shadow:0 12px 32px rgba(0,0,0,.35)}
+.ss .menu button{appearance:none;border:0;background:transparent;color:var(--t1);font:inherit;font-size:13px;text-align:left;padding:8px 11px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.ss .menu button:hover{background:var(--hov)}
+.ss .menu button:disabled{opacity:.35;cursor:default;background:transparent}
+.ss .menu button.dz{color:var(--dg)}
+.ss .menu button.dz:hover{background:var(--dgS)}
+.ss .menu hr{border:0;border-top:1px solid var(--bd);margin:4px 2px}
+.ss .bar.par{border-width:1px 1px 3px;font-weight:600}
+.ss .spanbar{position:absolute;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:var(--bd);overflow:hidden;pointer-events:auto}
+.ss .spanbar i{display:block;height:100%;background:currentColor;opacity:.75}
