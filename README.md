@@ -8,7 +8,8 @@ Plain static files — no build step. Open `index.html` or serve the folder.
 index.html        page shell (React 18 UMD from unpkg, supabase-js from jsDelivr)
 css/styles.css    dark theme + layout
 js/config.js      public runtime config (SUPABASE_URL / SUPABASE_ANON_KEY)
-js/data.js        seed board (49 tasks, 7 workstreams, 4 flows)
+js/data.js        empty starter skeleton (local-only mode); the plan itself is not in this repo
+supabase/migrations/  database schema, RLS policies and access-request setup (SQL)
 js/storage.js     storage module: load / saveBoard / saveTask / deleteTask / ...
 js/app.js         the board UI
 ```
@@ -25,7 +26,13 @@ Items nest to any depth: **Area** (the workstreams) › **Workstream** › **Tas
 ## Storage
 All persistence goes through `js/storage.js`.
 
-- **Shared (default):** `js/config.js` points at the Supabase project `stealthshell-board`. Anyone with the link can view; members with the *editor* or *owner* role sign in with an email magic link and edit. Owners manage members in the **Settings** tab. Every rule is enforced by Postgres row-level security, not by the UI. Changes from other people appear live (Realtime).
+- **Shared (default):** `js/config.js` points at the Supabase project `stealthshell-board`. The board is **members-only**: see *Sign-in and access* below. Members with the *editor* or *owner* role can edit; *viewers* can only read. Owners manage members in the **Settings** tab. Every rule is enforced by Postgres row-level security, not by the UI. Changes from other people appear live (Realtime).
 - **Local only:** empty both values in `js/config.js` and the board saves in this browser's `localStorage`.
 
 The publishable/anon key in `config.js` is public by design. Never put a `service_role` / secret key in this repo.
+
+## Sign-in and access
+- Opening the page signed out shows only a sign-in screen (email → **Send sign-in link**, a one-time magic link). Nothing from the plan is fetched or shipped before sign-in; the database refuses anonymous reads.
+- A signed-in person who isn't a member sees **Access pending** with **Request access** (and Sign out). The request lands in the owner's **Settings → Pending requests**, where it can be approved as *Viewer* or *Editor*, or declined. The pending screen opens the plan by itself once approved (Realtime, plus a check every 20 s and a *Check again* button).
+- Owners can still invite people directly by email in Settings; inviting someone also marks their pending request approved.
+- Database rules (`supabase/migrations/`): `board_settings`, `workstreams`, `tasks` and `flows` are readable only by members (`private.is_member()`) and writable by editors/owners; `access_requests` lets a user create/read only their own request while owners read and decide all; `board_seed` (the original plan used by *Reset to original data*) is owner-only. The anon role has no table privileges.

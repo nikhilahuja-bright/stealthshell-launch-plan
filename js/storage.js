@@ -5,8 +5,9 @@
  *   SSStorage.saveTask(task)  -> insert/update one task
  *   SSStorage.deleteTask(id)  -> remove one task
  *   SSStorage.saveMeta(meta), SSStorage.saveFlows(flows), SSStorage.saveWorkstreams(order)
- *   SSStorage.reset()         -> restore the seed (js/data.js)
- *   SSStorage.seed()          -> fresh deep copy of the seed board
+ *   SSStorage.reset()         -> restore the original plan (shared: public.board_seed, owners only; local: js/data.js)
+ *   SSStorage.seed()          -> fresh deep copy of js/data.js (an empty skeleton: the plan itself lives in the database)
+ * Shared mode is members-only: nothing is fetched until the signed-in user is a member (RLS enforces it too).
  * Backend: Supabase (supabase-js) when SS_CONFIG.SUPABASE_URL + SUPABASE_ANON_KEY are set,
  * otherwise localStorage. Permissions are enforced server-side by Postgres RLS.
  * Hierarchy: task.parentId (tasks.parent_id, ON DELETE CASCADE) nests a task under another task;
@@ -125,11 +126,15 @@
         self.subscribe();
         return { board: b, persisted: true, backend: "supabase" };
       }).catch(function (err) {
-        console.error("Supabase load failed, falling back to this browser", err);
-        emit("ss-sync", { ok: false, message: "Couldn't reach the shared database — showing a local copy." });
-        backend = local;
-        return local.load();
+        // Members-only board: never fall back to a local/seed copy — the caller shows an error + Retry.
+        console.error("Supabase load failed", err);
+        throw err;
       });
+    },
+    unload: function () {
+      if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+      if (this.channel) { try { sb.removeChannel(this.channel); } catch (e) { /* ignore */ } this.channel = null; }
+      this.snap = null; this.latest = null; this.pending = 0;
     },
     // Debounced: diff the new board against the last synced snapshot and send only the changes.
     saveBoard: function (b) {
@@ -218,21 +223,29 @@
   var auth = {
     user: null,
     role: null,
+    ready: !hasSupa,   // true once the first session check has finished
+    error: "",         // set when the membership check itself failed (network etc.)
     listeners: [],
-    notify: function () { var s = { user: auth.user, role: auth.role, enabled: hasSupa }; auth.listeners.forEach(function (cb) { cb(s); }); },
+    state: function () { return { user: auth.user, role: auth.role, enabled: hasSupa, ready: auth.ready, error: auth.error }; },
+    notify: function () { var s = auth.state(); auth.listeners.forEach(function (cb) { cb(s); }); },
     refresh: function (session) {
+      var prevId = auth.user && auth.user.id, prevRole = auth.role;
       auth.user = session && session.user ? { id: session.user.id, email: (session.user.email || "").toLowerCase() } : null;
-      if (!auth.user) { auth.role = null; auth.notify(); return Promise.resolve(); }
+      if (!auth.user) { auth.role = null; auth.error = ""; auth.ready = true; auth.notify(); return Promise.resolve(); }
       return sb.from("members").select("role").eq("email", auth.user.email).maybeSingle().then(function (r) {
-        auth.role = r && r.data ? r.data.role : null; auth.notify();
-      }, function () { auth.role = null; auth.notify(); });
+        // a failed check (network etc.) keeps the role we already knew for this same user instead of locking them out
+        var same = prevId && auth.user && prevId === auth.user.id;
+        if (r && r.error) { auth.error = r.error.message || "Couldn't check your access"; auth.role = same ? prevRole : null; }
+        else { auth.error = ""; auth.role = r && r.data ? r.data.role : null; }
+        auth.ready = true; auth.notify();
+      }, function (e) { var same = prevId && auth.user && prevId === auth.user.id; auth.role = same ? prevRole : null; auth.error = (e && e.message) || "Couldn't check your access"; auth.ready = true; auth.notify(); });
     },
   };
   if (sb) {
     sb.auth.onAuthStateChange(function (_ev, session) { setTimeout(function () { auth.refresh(session); }, 0); });
   }
 
-  window.SSStorage = {
+  var SSStorage = window.SSStorage = {
     seed: seed,
     backendName: function () { return backend.name; },
     load: function () { return backend.load(); },
@@ -247,13 +260,26 @@
     saveMeta: function (meta) { return backend.patch(function (b) { b.meta = meta; }); },
     saveFlows: function (flows) { return backend.patch(function (b) { b.flows = flows; }); },
     saveWorkstreams: function (order) { return backend.patch(function (b) { b.wsOrder = order; }); },
-    reset: function () { return backend.saveBoard(seed()); },
+    // Original plan: shared mode reads it from public.board_seed (owners only, RLS); local mode uses js/data.js.
+    loadSeed: function () {
+      if (backend !== remote) return Promise.resolve(seed());
+      return sb.from("board_seed").select("data").eq("id", 1).maybeSingle().then(function (r) {
+        var d = chk(r);
+        var b = d && normalise(d.data);
+        if (!b) throw new Error("The original plan isn't available.");
+        return b;
+      });
+    },
+    reset: function () { var self = this; return this.loadSeed().then(function (b) { return backend.saveBoard(b).then(function () { return b; }); }); },
+    unload: function () { if (backend === remote) remote.unload(); },
 
     // auth
     authEnabled: function () { return hasSupa; },
-    authState: function () { return { user: auth.user, role: auth.role, enabled: hasSupa }; },
-    onAuth: function (cb) { auth.listeners.push(cb); cb({ user: auth.user, role: auth.role, enabled: hasSupa }); return function () { auth.listeners = auth.listeners.filter(function (x) { return x !== cb; }); }; },
+    authState: function () { return auth.state(); },
+    onAuth: function (cb) { auth.listeners.push(cb); cb(auth.state()); return function () { auth.listeners = auth.listeners.filter(function (x) { return x !== cb; }); }; },
     initAuth: function () { if (!sb) return Promise.resolve(); return sb.auth.getSession().then(function (r) { return auth.refresh(r.data && r.data.session); }); },
+    // re-check membership for the current session (used by the "Access pending" screen)
+    checkAccess: function () { if (!sb) return Promise.resolve(); return sb.auth.getSession().then(function (r) { return auth.refresh(r.data && r.data.session); }); },
     signIn: function (email) {
       if (!sb) return Promise.reject(new Error("Sign-in needs the shared database."));
       var redirect = window.location.origin + window.location.pathname;
@@ -265,6 +291,34 @@
     listMembers: function () { return sb.from("members").select("id,email,role,invited_by,created_at").order("created_at").then(chk); },
     inviteMember: function (email, role) { return sb.from("members").insert({ email: String(email).trim().toLowerCase(), role: role }).select().then(chk); },
     setMemberRole: function (id, role) { return sb.from("members").update({ role: role }).eq("id", id).select().then(function (r) { var d = chk(r); if (!d || !d.length) throw new Error("Not allowed"); return d; }); },
+    // access requests (RLS: a user sees/creates only their own; owners see and decide all)
+    myRequest: function () {
+      if (!auth.user) return Promise.resolve(null);
+      return sb.from("access_requests").select("id,email,status,requested_at,decided_at").eq("email", auth.user.email)
+        .order("requested_at", { ascending: false }).limit(1).then(function (r) { var d = chk(r); return d && d.length ? d[0] : null; });
+    },
+    requestAccess: function () {
+      if (!auth.user) return Promise.reject(new Error("Sign in first."));
+      return sb.from("access_requests").insert({ email: auth.user.email }).select("id,email,status,requested_at,decided_at").then(function (r) {
+        if (r.error && /duplicate|unique/i.test(r.error.message || "")) return SSStorage.myRequest();
+        var d = chk(r); return d && d.length ? d[0] : null;
+      });
+    },
+    listRequests: function () { return sb.from("access_requests").select("id,email,status,requested_at,decided_at,decided_by").eq("status", "pending").order("requested_at").then(chk); },
+    approveRequest: function (req, role) {
+      // Adding the member marks the pending request approved (DB trigger); if they were already a member, mark it here.
+      return sb.from("members").insert({ email: req.email, role: role }).select().then(function (r) {
+        if (r.error && !/duplicate|unique/i.test(r.error.message || "")) throw r.error;
+        return sb.from("access_requests").update({ status: "approved" }).eq("id", req.id).eq("status", "pending").then(chk);
+      });
+    },
+    declineRequest: function (id) { return sb.from("access_requests").update({ status: "declined" }).eq("id", id).select().then(function (r) { var d = chk(r); if (!d || !d.length) throw new Error("Not allowed"); return d; }); },
+    onRequests: function (cb) {
+      if (!sb) return function () {};
+      var ch = sb.channel("access-requests-" + Math.random().toString(36).slice(2));
+      ch.on("postgres_changes", { event: "*", schema: "public", table: "access_requests" }, function () { cb(); }).subscribe();
+      return function () { try { sb.removeChannel(ch); } catch (e) { /* ignore */ } };
+    },
     removeMember: function (id) { return sb.from("members").delete().eq("id", id).select().then(function (r) { var d = chk(r); if (!d || !d.length) throw new Error("Not allowed"); return d; }); },
   };
 })();

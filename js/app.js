@@ -27,7 +27,6 @@ const uid = (p) => {
 const n = (t, s, v = "neutral", d = "") => ({ id: uid("n"), t, s, v, d });
 const ns = (node) => ({ id: uid("s"), kind: "node", node, lanes: [] });
 const br = (lanes) => ({ id: uid("s"), kind: "branch", node: null, lanes: lanes.map((l) => ({ id: uid("l"), tag: l[0], nodes: l[1] })) });
-const seedBoard = () => SSStorage.seed();
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -559,15 +558,16 @@ function App({ init }) {
       body: "Every task, workstream, flow and header edit made on this page will be replaced by the original plan.",
       label: "Reset data",
       run: () => {
-        const b = seedBoard();
-        setMeta(b.meta);
-        setWsOrder(b.wsOrder);
-        setTasks(b.tasks);
-        setFlows(b.flows);
-        setFlowEdit(null);
-        setRowEdit(null);
-        setHdr(null);
-        setFlash("Plan reset to the original data");
+        SSStorage.loadSeed().then((b) => {
+          setMeta(b.meta);
+          setWsOrder(b.wsOrder);
+          setTasks(b.tasks);
+          setFlows(b.flows);
+          setFlowEdit(null);
+          setRowEdit(null);
+          setHdr(null);
+          setFlash("Plan reset to the original data");
+        }, (err) => setFlash(err && err.message ? `Couldn't reset: ${err.message}` : "Couldn't load the original plan"));
       }
     });
   };
@@ -1405,6 +1405,40 @@ function SignInPanel({ onClose }) {
     }
   )), /* @__PURE__ */ React.createElement("div", { className: "row", style: { marginTop: 14, justifyContent: "flex-end" } }, msg && /* @__PURE__ */ React.createElement("span", { className: "sub", style: { marginRight: "auto", color: state === "err" ? "var(--dg)" : "var(--ok)" } }, msg), /* @__PURE__ */ React.createElement("button", { className: "btn primary", disabled: state === "busy", onClick: send }, state === "busy" ? "Sending…" : state === "sent" ? "Send again" : "Send magic link")));
 }
+function fmtWhen(v) {
+  if (!v) return "";
+  const d = new Date(v);
+  return d.toLocaleString(void 0, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+}
+function PendingRequests({ onChange }) {
+  const [reqs, setReqs] = useState(null);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+  const [busy, setBusy] = useState(null);
+  const load = () => {
+    SSStorage.listRequests().then((r) => setReqs(r || []), (e) => setErr(e.message || "Couldn't load access requests"));
+  };
+  useEffect(() => {
+    load();
+    const off = SSStorage.onRequests(load);
+    return off;
+  }, []);
+  const act = (r, p, done) => {
+    setErr("");
+    setOk("");
+    setBusy(r.id);
+    p.then(() => {
+      setBusy(null);
+      setOk(done);
+      load();
+      if (onChange) onChange();
+    }, (e) => {
+      setBusy(null);
+      setErr(e && e.message ? e.message : "Something went wrong");
+    });
+  };
+  return /* @__PURE__ */ React.createElement("div", { className: "reqs", style: { marginBottom: 18 } }, /* @__PURE__ */ React.createElement("div", { className: "row", style: { gap: 8, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "lbl" }, "Pending requests"), reqs && reqs.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "pill", style: { color: "var(--wa)" } }, reqs.length)), err && /* @__PURE__ */ React.createElement("p", { className: "sub", style: { color: "var(--dg)", marginBottom: 8 } }, err), ok && /* @__PURE__ */ React.createElement("p", { className: "sub", style: { color: "var(--ok)", marginBottom: 8 } }, ok), reqs === null ? /* @__PURE__ */ React.createElement("p", { className: "sub" }, "Loading requests…") : reqs.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "sub" }, "No one is waiting for access. When someone signs in who isn't a member, they can request access and it shows up here.") : /* @__PURE__ */ React.createElement("div", { className: "members" }, reqs.map((r) => /* @__PURE__ */ React.createElement("div", { className: "mrow", key: r.id }, /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 220px", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { className: "tt" }, r.email), /* @__PURE__ */ React.createElement("div", { className: "meta" }, "Requested ", fmtWhen(r.requested_at))), /* @__PURE__ */ React.createElement("button", { className: "btn sm", disabled: busy === r.id, onClick: () => act(r, SSStorage.approveRequest(r, "viewer"), `Approved ${r.email} as viewer.`) }, "Approve as Viewer"), /* @__PURE__ */ React.createElement("button", { className: "btn sm primary", disabled: busy === r.id, onClick: () => act(r, SSStorage.approveRequest(r, "editor"), `Approved ${r.email} as editor.`) }, "Approve as Editor"), /* @__PURE__ */ React.createElement("button", { className: "btn sm danger", disabled: busy === r.id, onClick: () => act(r, SSStorage.declineRequest(r.id), `Declined ${r.email}.`) }, "Decline")))));
+}
 function SettingsPanel({ me }) {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState("");
@@ -1431,7 +1465,7 @@ function SettingsPanel({ me }) {
     }
     run(SSStorage.inviteMember(v, newRole).then(() => setEmail("")), `Added ${v} as ${newRole}. They can now sign in with a magic link.`);
   };
-  return /* @__PURE__ */ React.createElement("div", { className: "card", style: { padding: "18px 20px 20px" } }, /* @__PURE__ */ React.createElement("span", { className: "lbl", style: { color: "var(--ac)" } }, "Settings · Members"), /* @__PURE__ */ React.createElement("h2", { style: { marginTop: 6 } }, "Who can edit this board"), /* @__PURE__ */ React.createElement("p", { className: "sub", style: { marginBottom: 14 } }, "Anyone with the link can view. Editors can change tasks, workstreams, flows and the header. Owners can also manage members. People sign in with a magic link sent to the email you add here."), /* @__PURE__ */ React.createElement("div", { className: "row", style: { gap: 8, marginBottom: 16 } }, /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("div", { className: "card", style: { padding: "18px 20px 20px" } }, /* @__PURE__ */ React.createElement("span", { className: "lbl", style: { color: "var(--ac)" } }, "Settings · Members"), /* @__PURE__ */ React.createElement("h2", { style: { marginTop: 6 } }, "Who can see and edit this board"), /* @__PURE__ */ React.createElement("p", { className: "sub", style: { marginBottom: 14 } }, "Only people on this list can open the plan — everyone else sees a sign-in screen. Viewers can read. Editors can change tasks, workstreams, flows and the header. Owners can also manage members. People sign in with a magic link sent to their email."), /* @__PURE__ */ React.createElement(PendingRequests, { onChange: load }), /* @__PURE__ */ React.createElement("span", { className: "lbl", style: { display: "block", marginBottom: 8 } }, "Invite by email"), /* @__PURE__ */ React.createElement("div", { className: "row", style: { gap: 8, marginBottom: 16 } }, /* @__PURE__ */ React.createElement(
     "input",
     {
       className: "in",
@@ -1449,14 +1483,141 @@ function SettingsPanel({ me }) {
     if (window.confirm(`Remove ${m.email} from the board?`)) run(SSStorage.removeMember(m.id), `Removed ${m.email}.`);
   } }, "Remove")))));
 }
-function Root() {
-  const [init, setInit] = useState(null);
-  useEffect(() => {
-    Promise.all([SSStorage.load(), SSStorage.initAuth().catch(() => void 0)]).then((r) => setInit(r[0]));
-  }, []);
-  if (!init) {
-    return /* @__PURE__ */ React.createElement("div", { className: "ss" }, /* @__PURE__ */ React.createElement("div", { className: "wrap" }, /* @__PURE__ */ React.createElement("p", { className: "mono", style: { color: "var(--t3)", fontSize: 12 } }, "Loading plan…")));
+const GATE_TITLE = "StealthShell";
+function GateShell({ label, children }) {
+  return /* @__PURE__ */ React.createElement("div", { className: "ss gate" }, /* @__PURE__ */ React.createElement("div", { className: "gate-card card", role: "main" }, /* @__PURE__ */ React.createElement("span", { className: "lbl", style: { color: "var(--ac)" } }, label), /* @__PURE__ */ React.createElement("h1", { className: "gate-title" }, GATE_TITLE), children));
+}
+function hashError() {
+  try {
+    const h = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+    const d = h.get("error_description");
+    if (d) {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      return d.replace(/\+/g, " ");
+    }
+  } catch (e) {
   }
-  return /* @__PURE__ */ React.createElement(App, { init });
+  return "";
+}
+function SignInGate() {
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState("idle");
+  const [msg, setMsg] = useState(() => {
+    const e = hashError();
+    return e ? `That sign-in link didn't work (${e}). Request a new one below.` : "";
+  });
+  const send = () => {
+    const v = email.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
+      setState("err");
+      setMsg("Enter a valid email address.");
+      return;
+    }
+    setState("busy");
+    setMsg("");
+    SSStorage.signIn(v).then(
+      () => {
+        setState("sent");
+        setMsg(`Sign-in link sent to ${v}. Open it on this device to continue.`);
+      },
+      (err) => {
+        setState("err");
+        setMsg(err && err.message ? err.message : "Couldn't send the link. Try again in a few minutes.");
+      }
+    );
+  };
+  return /* @__PURE__ */ React.createElement(GateShell, { label: "Private board" }, /* @__PURE__ */ React.createElement("p", { className: "sub", style: { margin: "6px 0 18px" } }, "Sign in with your email to see the plan. We'll email you a one-time sign-in link — no password needed."), /* @__PURE__ */ React.createElement("form", { noValidate: true, onSubmit: (e) => {
+    e.preventDefault();
+    send();
+  } }, /* @__PURE__ */ React.createElement("label", { className: "lbl", htmlFor: "gate-email", style: { display: "block", marginBottom: 6 } }, "Email"), /* @__PURE__ */ React.createElement("input", { id: "gate-email", className: "in", type: "email", autoComplete: "email", autoFocus: true, placeholder: "you@company.com", value: email, onChange: (e) => setEmail(e.target.value) }), /* @__PURE__ */ React.createElement("button", { type: "submit", className: "btn primary gate-btn", disabled: state === "busy" }, state === "busy" ? "Sending…" : state === "sent" ? "Send again" : "Send sign-in link")), msg && /* @__PURE__ */ React.createElement("p", { className: "sub", role: "status", style: { marginTop: 12, color: state === "sent" ? "var(--ok)" : "var(--dg)" } }, msg), /* @__PURE__ */ React.createElement("p", { className: "sub gate-foot" }, "Only people the owner has approved can open this board."));
+}
+function PendingGate({ auth }) {
+  const [req, setReq] = useState(void 0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [checking, setChecking] = useState(false);
+  const loadReq = () => SSStorage.myRequest().then((r) => setReq(r || null), (e) => {
+    setReq(null);
+    setErr(e && e.message ? e.message : "Couldn't load your request");
+  });
+  const check = () => {
+    setChecking(true);
+    return SSStorage.checkAccess().then(() => {
+      setChecking(false);
+      loadReq();
+    }, () => setChecking(false));
+  };
+  useEffect(() => {
+    loadReq();
+    const off = SSStorage.onRequests(() => check());
+    const t = setInterval(() => {
+      if (!document.hidden) check();
+    }, 2e4);
+    return () => {
+      off();
+      clearInterval(t);
+    };
+  }, [auth.user.email]);
+  const request = () => {
+    setBusy(true);
+    setErr("");
+    SSStorage.requestAccess().then((r) => {
+      setBusy(false);
+      setReq(r || null);
+    }, (e) => {
+      setBusy(false);
+      setErr(e && e.message ? e.message : "Couldn't send the request");
+    });
+  };
+  const status = req && req.status;
+  const canRequest = req === null || status === "declined" || status === "approved";
+  return /* @__PURE__ */ React.createElement(GateShell, { label: "Access pending" }, /* @__PURE__ */ React.createElement("p", { className: "gate-msg" }, "You're signed in as ", /* @__PURE__ */ React.createElement("b", null, auth.user.email), ". The owner needs to approve your access."), auth.error && /* @__PURE__ */ React.createElement("p", { className: "sub", style: { color: "var(--dg)" } }, "Couldn't check your access right now (", auth.error, "). We'll keep trying."), req === void 0 ? /* @__PURE__ */ React.createElement("p", { className: "sub" }, "Checking your request…") : status === "pending" ? /* @__PURE__ */ React.createElement("p", { className: "sub", role: "status", style: { color: "var(--ok)" } }, "Request sent ", fmtWhen(req.requested_at), ". This page opens the plan automatically once the owner approves.") : status === "declined" ? /* @__PURE__ */ React.createElement("p", { className: "sub", role: "status", style: { color: "var(--wa)" } }, "Your last request was declined", req.decided_at ? ` on ${fmtWhen(req.decided_at)}` : "", ". You can ask again.") : /* @__PURE__ */ React.createElement("p", { className: "sub" }, "Ask the owner for access — they'll see your request in Settings."), err && /* @__PURE__ */ React.createElement("p", { className: "sub", style: { color: "var(--dg)" } }, err), /* @__PURE__ */ React.createElement("div", { className: "row", style: { gap: 8, marginTop: 16, flexWrap: "wrap" } }, canRequest && /* @__PURE__ */ React.createElement("button", { className: "btn primary", disabled: busy, onClick: request }, busy ? "Sending…" : status === "declined" ? "Request again" : "Request access"), /* @__PURE__ */ React.createElement("button", { className: "btn", disabled: checking, onClick: check }, checking ? "Checking…" : "Check again"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost", onClick: () => SSStorage.signOut() }, "Sign out")));
+}
+function Loading({ text }) {
+  return /* @__PURE__ */ React.createElement("div", { className: "ss" }, /* @__PURE__ */ React.createElement("div", { className: "wrap" }, /* @__PURE__ */ React.createElement("p", { className: "mono", style: { color: "var(--t3)", fontSize: 12 } }, text)));
+}
+function Root() {
+  const shared = SSStorage.authEnabled();
+  const [auth, setAuth] = useState(() => SSStorage.authState());
+  const [init, setInit] = useState(null);
+  const [loadErr, setLoadErr] = useState("");
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    if (!shared) {
+      SSStorage.load().then(setInit);
+      return;
+    }
+    const off = SSStorage.onAuth(setAuth);
+    SSStorage.initAuth().catch(() => void 0);
+    return off;
+  }, []);
+  const member = shared && auth.ready && !!auth.user && !!auth.role;
+  const who = auth.user ? auth.user.id : "";
+  useEffect(() => {
+    if (!shared) return;
+    if (!member) {
+      SSStorage.unload();
+      setInit(null);
+      setLoadErr("");
+      return;
+    }
+    let live = true;
+    setLoadErr("");
+    SSStorage.load().then((r) => {
+      if (live) setInit(r);
+    }, (e) => {
+      if (live) setLoadErr(e && e.message ? e.message : "Couldn't reach the database");
+    });
+    return () => {
+      live = false;
+    };
+  }, [member, who, tries]);
+  if (!shared) return init ? /* @__PURE__ */ React.createElement(App, { init }) : /* @__PURE__ */ React.createElement(Loading, { text: "Loading plan…" });
+  if (!auth.ready) return /* @__PURE__ */ React.createElement(Loading, { text: "Checking sign-in…" });
+  if (!auth.user) return /* @__PURE__ */ React.createElement(SignInGate, null);
+  if (!auth.role) return /* @__PURE__ */ React.createElement(PendingGate, { auth });
+  if (loadErr) return /* @__PURE__ */ React.createElement(GateShell, { label: "Couldn't load" }, /* @__PURE__ */ React.createElement("p", { className: "sub", style: { color: "var(--dg)" } }, "Couldn't load the plan: ", loadErr), /* @__PURE__ */ React.createElement("div", { className: "row", style: { gap: 8, marginTop: 16 } }, /* @__PURE__ */ React.createElement("button", { className: "btn primary", onClick: () => setTries((n) => n + 1) }, "Retry"), /* @__PURE__ */ React.createElement("button", { className: "btn ghost", onClick: () => SSStorage.signOut() }, "Sign out")));
+  if (!init) return /* @__PURE__ */ React.createElement(Loading, { text: "Loading plan…" });
+  return /* @__PURE__ */ React.createElement(App, { key: who, init });
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(Root, null));

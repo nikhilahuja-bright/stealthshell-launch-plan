@@ -184,3 +184,14 @@ html, body { margin: 0; padding: 0; background: #0a0e17; }
 .ss .bar.par{border-width:1px 1px 3px;font-weight:600}
 .ss .spanbar{position:absolute;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:var(--bd);overflow:hidden;pointer-events:auto}
 .ss .spanbar i{display:block;height:100%;background:currentColor;opacity:.75}
+
+/* sign-in / access-pending gate (members-only board) */
+.ss.gate{display:flex;align-items:center;justify-content:center;padding:24px 14px}
+.ss .gate-card{width:min(440px,100%);padding:26px 26px 22px}
+.ss .gate-title{margin:6px 0 4px}
+.ss .gate-card .in{width:100%}
+.ss .gate-btn{width:100%;justify-content:center;margin-top:12px}
+.ss .gate-msg{color:var(--t2);margin:8px 0 10px}
+.ss .gate-msg b{color:var(--t1);font-weight:600}
+.ss .gate-foot{margin-top:18px;padding-top:12px;border-top:1px solid var(--bds);color:var(--t3);font-size:12px}
+.ss .reqs .mrow{flex-wrap:wrap}
